@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Abrindo o painel</title>
+<link rel="preconnect" href="https://app.powerbi.com">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;background:#05070A;overflow:hidden}
+  body{font-family:"Segoe UI",system-ui,-apple-system,Arial,sans-serif;color:#fff}
+
+  /* Palco: fundo escuro com um brilho verde, e a moldura no centro. */
+  #palco{
+    position:fixed;inset:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:20px;
+    background:
+      radial-gradient(58% 58% at 50% 44%, rgba(143,212,0,.10) 0%, rgba(143,212,0,.03) 46%, transparent 74%),
+      #05070A;
+    transition:opacity .5s ease;
+  }
+  #palco.off{opacity:0;pointer-events:none}
+
+  /* A moldura define o tamanho do video na tela. O video fica inteiro
+     dentro dela, sem corte e sem aproximacao. */
+  #moldura{
+    position:relative;width:min(72vw, calc(72vh * 16 / 9));aspect-ratio:16/9;
+    border-radius:14px;overflow:hidden;background:#000;
+    box-shadow:0 18px 50px rgba(0,0,0,.75);
+  }
+
+  /* muted e playsinline sao obrigatorios para o navegador deixar tocar sozinho. */
+  #video{
+    width:100%;height:100%;display:block;
+    object-fit:contain;background:#000;
+  }
+
+  #legenda{
+    font-size:12px;letter-spacing:.34em;text-transform:uppercase;
+    color:#6E7C8A;transition:opacity .4s ease;
+  }
+  #palco.off #legenda{opacity:0}
+
+  /* Cortina usada para o fade antes de abrir o Power BI. */
+  #cortina{
+    position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;
+    transition:opacity .3s ease;
+  }
+  #cortina.on{opacity:1}
+
+  /* Barra de tempo, fina, na base da tela. */
+  #barra{
+    position:fixed;left:0;right:0;bottom:0;height:3px;
+    background:rgba(255,255,255,.08);z-index:8;
+  }
+  #barra i{
+    display:block;height:100%;width:0%;background:#8FD400;
+    transition:width .2s linear;
+  }
+
+  #pular{
+    position:fixed;top:18px;right:18px;z-index:5;
+    background:rgba(0,0,0,.45);color:#fff;border:1px solid rgba(255,255,255,.28);
+    padding:9px 15px;border-radius:99px;font-size:14px;cursor:pointer;
+    backdrop-filter:blur(4px);
+  }
+  #pular:hover{border-color:#8FD400}
+
+  /* Modo embed: o relatorio ocupa a tela depois da introducao. */
+  #portal{
+    position:fixed;inset:0;border:0;width:100%;height:100%;
+    opacity:0;pointer-events:none;transition:opacity .8s ease;background:#fff;
+  }
+  #portal.on{opacity:1;pointer-events:auto}
+
+  #carregando{
+    position:fixed;left:0;right:0;bottom:8%;text-align:center;z-index:7;
+    font-size:14px;letter-spacing:.22em;color:#7C8A99;opacity:0;
+    transition:opacity .4s ease;pointer-events:none;text-transform:uppercase;
+  }
+  #carregando.on{opacity:1}
+
+  #aviso{
+    position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+    background:#000;z-index:9;padding:32px;text-align:center;line-height:1.6;
+  }
+  #aviso.on{display:flex}
+  #aviso code{background:#1b1b1b;padding:2px 7px;border-radius:6px;font-size:14px}
+</style>
+</head>
+<body>
+
+<div id="palco">
+  <div id="moldura">
+    <video id="video" src="intro.mp4" muted playsinline preload="auto" autoplay></video>
+  </div>
+  <div id="legenda">Abrindo o painel</div>
+</div>
+<div id="barra"><i id="progresso"></i></div>
+<iframe id="portal" title="Painel" allowfullscreen></iframe>
+<div id="cortina"></div>
+<button id="pular" type="button">Pular introdução</button>
+<div id="carregando">Carregando o painel</div>
+<div id="aviso">
+  <div>
+    <p><b>Falta configurar o endereço do painel.</b></p>
+    <p style="margin-top:10px">Abra o arquivo <code>index.html</code> e troque o valor de
+    <code>urlPowerBI</code> pelo link do seu relatório publicado.</p>
+  </div>
+</div>
+
+<script>
+  /* ------------------------------------------------------------------
+     1) CONFIGURE AQUI
+     ------------------------------------------------------------------ */
+  const CONFIG = {
+    video: "intro.mp4",
+
+    /* Quantos segundos de introdução antes de abrir o painel.
+       O vídeo tem 4 s e termina num indicador de carregamento, que é
+       exatamente o ponto onde o Power BI entra. */
+    segundos: 4,
+
+    /* Duração do escurecimento antes da troca, em milissegundos.
+       Curto, para emendar no indicador de carregamento do vídeo. */
+    fadeMs: 300,
+
+    /* "redirecionar" abre o painel na mesma aba. É o modo mais confiável.
+       "embed" mostra o painel dentro desta página, e exige que o relatório
+       esteja publicado na web, sem exigir login. */
+    modo: "embed",
+
+    /* Link do relatório. Para pegar um link que abre sem login, use
+       Publicar na web no Power BI e copie o endereço gerado. */
+    urlPowerBI: "https://app.powerbi.com/view?r=eyJrIjoiNDFhNGRhMTItNzlkMC00YzU2LWE5NGQtNjk0YzVhMGViMzBkIiwidCI6IjVjN2I4ODA2LWZmMWMtNGYxNy04NTFkLTBmMTNlOGY2MThjMyJ9",
+
+    /* Se o navegador nao deixar o video tocar, quanto tempo a capa fica na
+       tela antes de o painel abrir sozinho, em segundos. */
+    segundosSemVideo: 2.5,
+
+    /* Quando o aparelho bloqueia o video, a abertura so roda depois de um
+       toque na tela. Com a dica ligada, a legenda avisa isso; com ela
+       desligada, a tela fica so com o quadro parado e a legenda normal. */
+    dica: false
+  };
+
+  const video      = document.getElementById("video");
+  const cortina    = document.getElementById("cortina");
+  const progresso  = document.getElementById("progresso");
+  const portal     = document.getElementById("portal");
+  const aviso      = document.getElementById("aviso");
+  const carregando = document.getElementById("carregando");
+  const legenda    = document.getElementById("legenda");
+
+  const TOTAL = Math.max(1, Number(CONFIG.segundos) || 5) * 1000;
+  const TOTAL_SEM_VIDEO = Math.max(300, (Number(CONFIG.segundosSemVideo) || 1.5) * 1000);
+  const FADE  = Math.max(0, Number(CONFIG.fadeMs) || 800);
+  let iniciouEm = null;
+  let abriu = false;
+  let total = TOTAL;
+  let tentativas = 0;
+  let seguindo = false;
+  let relogioPlanoB = null;
+
+  if (video.getAttribute("src") !== CONFIG.video) video.src = CONFIG.video;
+  video.muted = true;
+  cortina.style.transition = "opacity " + (FADE / 1000) + "s ease";
+
+  if (CONFIG.modo === "embed" && !CONFIG.urlPowerBI.includes("COLE_AQUI")) {
+    portal.src = CONFIG.urlPowerBI;   /* já vai carregando por trás do vídeo */
+  }
+
+  portal.addEventListener("load", function(){ portal.dataset.pronto = "1"; });
+
+  function comecarContagem(){
+    if (iniciouEm) return;
+    iniciouEm = Date.now();
+    const tique = setInterval(function(){
+      const passou = Date.now() - iniciouEm;
+      progresso.style.width = Math.min(100, (passou / total) * 100) + "%";
+      if (passou > total - FADE) cortina.classList.add("on");
+      if (passou >= total){ clearInterval(tique); abrirPainel(); }
+    }, 100);
+  }
+
+  function abrirPainel(){
+    if (abriu) return;
+    abriu = true;
+
+    if (CONFIG.urlPowerBI.includes("COLE_AQUI")){
+      cortina.classList.remove("on");
+      aviso.classList.add("on");
+      return;
+    }
+    cortina.classList.add("on");
+
+    if (CONFIG.modo === "embed"){
+      setTimeout(function(){
+        if (!portal.src) portal.src = CONFIG.urlPowerBI;
+        revelarQuandoEstiverPronto();
+      }, FADE + 60);
+    } else {
+      setTimeout(function(){ window.location.replace(CONFIG.urlPowerBI); }, FADE + 60);
+    }
+  }
+
+  /* No modo embed, o painel fica escondido atras da cortina preta e so aparece
+     quando termina de carregar. Isso evita o flash branco do carregamento. */
+  function revelarQuandoEstiverPronto(){
+    let solto = false;
+    const revelar = function(){
+      if (solto) return;
+      solto = true;
+      carregando.classList.remove("on");
+      document.getElementById("pular").style.display = "none";
+      document.getElementById("barra").style.display = "none";
+      document.getElementById("palco").classList.add("off");
+      portal.classList.add("on");
+      setTimeout(function(){ cortina.classList.remove("on"); }, 120);
+    };
+    if (portal.dataset.pronto === "1"){ revelar(); return; }
+    carregando.classList.add("on");
+    portal.addEventListener("load", revelar);
+    setTimeout(revelar, 7000);   /* rede lenta: revela de qualquer forma */
+  }
+
+  /* Autoplay com som é bloqueado pelo navegador; muted resolve.
+     Se mesmo assim falhar, mostramos um botão para começar no clique. */
+  function tentarTocar(){
+    if (iniciouEm || seguindo) return;
+    const p = video.play();
+    if (!p || !p.catch){ comecarContagem(); return; }
+    p.then(function(){ comecarContagem(); })
+     .catch(function(erro){
+       const bloqueio = erro && (erro.name === "NotAllowedError" || erro.name === "SecurityError");
+       if (!bloqueio && tentativas < 2){
+         /* Nao foi bloqueio, foi falha passageira: acontece muito no celular
+            com rede lenta, que ainda nao carregou o video. Em vez de desistir
+            da abertura, esperamos o video ficar pronto e tentamos de novo. */
+         tentativas += 1;
+         video.addEventListener("loadeddata", tentarTocar, { once: true });
+         setTimeout(planoB, 2500);
+         return;
+       }
+       /* Bloqueio de autoplay: e politica do aparelho, nao do site. Acontece
+          no celular e no tablet com a economia de energia ligada, e vale para
+          video mudo tambem. Como o sistema exige um toque, deixamos o video
+          pronto para tocar no primeiro toque em qualquer lugar da tela. Se
+          ninguem tocar, seguimos sozinhos depois de segundosSemVideo. */
+       if (CONFIG.dica) legenda.textContent = "Toque para ver a abertura";
+       clearTimeout(relogioPlanoB);
+       relogioPlanoB = setTimeout(planoB, TOTAL_SEM_VIDEO);
+     });
+  }
+
+  /* Plano B: pula a abertura e vai direto para o painel, sem clique. */
+  function planoB(){
+    if (seguindo || iniciouEm) return;
+    seguindo = true;
+    if (CONFIG.dica) legenda.textContent = "Abrindo o painel";
+    total = 500;
+    comecarContagem();
+  }
+
+  /* Se o vídeo terminar antes do tempo configurado, abrimos na hora. */
+  video.addEventListener("ended", abrirPainel);
+  video.addEventListener("playing", comecarContagem);
+
+  document.getElementById("pular").addEventListener("click", abrirPainel);
+
+  document.addEventListener("keydown", function(e){
+    if (e.key === "Escape" || e.key === "Enter" || e.code === "Space") abrirPainel();
+  });
+
+  tentarTocar();
+
+  /* Se o aparelho exigir um toque para liberar o video, qualquer toque na tela
+     serve: nao tem botao, nao tem instrucao, e a abertura continua. */
+  ["touchstart", "pointerdown", "keydown"].forEach(function(evento){
+    document.addEventListener(evento, function(){
+      if (!iniciouEm && !seguindo) tentarTocar();
+    }, { passive: true });
+  });
+</script>
+</body>
+</html>
